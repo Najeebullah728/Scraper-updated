@@ -24,7 +24,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 
 # Timing settings (in seconds)
 PAGE_LOAD_WAIT = 8
-REPLY_BUTTON_WAIT = 15  # Wait time after clicking Reply button
+REPLY_BUTTON_WAIT = 10  # Wait time after clicking Reply button
 CALL_BUTTON_WAIT = 10   # Wait time after clicking Call button
 NEXT_PAGE_WAIT_MIN = 5
 NEXT_PAGE_WAIT_MAX = 10
