@@ -2,7 +2,6 @@
 Main script to run the entire Craigslist scraper pipeline.
 """
 import argparse
-import os
 import sys
 import time
 from pathlib import Path
@@ -95,13 +94,13 @@ def run_pipeline(
                     detail_scraper.scrape_all_listings()
 
             elif stage_num == 4:
-                # Stage 4: Extract data
-                logger.info("=== STAGE 4: EXTRACTING DATA ===")
+                # Stage 4: Extract data (title and phone number only)
+                logger.info("=== STAGE 4: EXTRACTING TITLE AND PHONE NUMBER ===")
                 logger.info("Press Ctrl+C to skip to the next stage")
                 data_extractor = DataExtractor(
                     input_dir=config.MAIN_DATA_DIR,
                     links_file=config.LINKS_CSV,
-                    output_file=config.OUTPUT_CSV
+                    output_file=Path("output/output_data.txt")
                 )
 
                 data_extractor.run(parallel=parallel, num_workers=workers[4])
@@ -150,7 +149,7 @@ def run_pipeline(
     if 5 in stages:
         logger.info(f"Final filtered data saved to: {config.FILTERED_CSV}")
     elif 4 in stages:
-        logger.info(f"Extracted data saved to: {config.OUTPUT_CSV}")
+        logger.info(f"Extracted title and phone number data saved to: output/output_data.txt")
 
 
 def main():

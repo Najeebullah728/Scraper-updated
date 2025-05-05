@@ -1,5 +1,6 @@
 """
-Stage 4: Extract structured data from detailed listing pages.
+Stage 4: Extract only title and phone number from HTML files and save to a text file.
+Skip any entries without a valid phone number.
 """
 import argparse
 import concurrent.futures
@@ -18,22 +19,23 @@ from utils import logger, save_to_file, get_progress_bar
 
 class DataExtractor:
     """
-    Extract structured data from HTML files scraped in Stage 3.
+    Extract title and phone number from HTML files scraped in Stage 3.
+    Skip any entries without a valid phone number.
     """
 
     def __init__(
         self,
         input_dir: Path = config.MAIN_DATA_DIR,
         links_file: Path = config.LINKS_CSV,
-        output_file: Path = config.OUTPUT_CSV
+        output_file: Path = Path("output/output_data.txt")
     ):
         """
-        Initialize the data extractor.
+        Initialize the extractor.
 
         Args:
             input_dir: Directory containing HTML files
             links_file: CSV file containing links
-            output_file: Output CSV file for extracted data
+            output_file: Output text file for extracted data
         """
         self.input_dir = Path(input_dir)
         self.links_file = Path(links_file)
@@ -62,15 +64,15 @@ class DataExtractor:
             logger.error(f"Error loading links from {self.links_file}: {e}")
             return pd.DataFrame(columns=["link"])
 
-    def extract_data_from_html(self, html_file: Path) -> Dict[str, Any]:
+    def extract_data_from_html(self, html_file: Path) -> Dict[str, str]:
         """
-        Extract structured data from a single HTML file.
+        Extract title and phone number from a single HTML file.
 
         Args:
             html_file: Path to HTML file
 
         Returns:
-            Dict[str, Any]: Extracted data
+            Dict[str, str]: Extracted title and phone number
         """
         try:
             with open(html_file, "r", encoding="utf-8") as f:
@@ -81,22 +83,13 @@ class DataExtractor:
             # Initialize data dictionary
             data = {
                 "title": "N/A",
-                "price": "N/A",
-                "phone_number": "N/A",
-                "location": "N/A",
-                "post_date": "N/A",
-                "attributes": {}
+                "phone_number": "N/A"
             }
 
             # Extract title
             title_tag = soup.find("span", {"id": "titletextonly"})
             if title_tag:
                 data["title"] = title_tag.text.strip()
-
-            # Extract price
-            price_tag = soup.find("span", {"class": "price"})
-            if price_tag:
-                data["price"] = price_tag.text.strip()
 
             # First, try to extract phone number from HTML comment
             html_str = str(soup)
@@ -109,7 +102,6 @@ class DataExtractor:
                     logger.info(f"Extracted valid phone number from comment: {data['phone_number']}")
                 else:
                     logger.warning(f"Found phone number in comment but not valid format: {phone_text}")
-                    data["phone_number"] = "N/A"
             else:
                 # If not found in comment, try to extract from the page content
                 phone_tag = soup.select_one(".reply-content-phone a[href^='tel:']")
@@ -121,7 +113,6 @@ class DataExtractor:
                         logger.info(f"Extracted valid phone number from page: {data['phone_number']}")
                     else:
                         logger.warning(f"Found phone element but not valid format: {phone_text}")
-                        data["phone_number"] = "N/A"
                 else:
                     # Try to find any phone number pattern in the page
                     phone_pattern = re.compile(r'\(\d{3}\)\s\d{3}-\d{4}')
@@ -144,36 +135,6 @@ class DataExtractor:
                             if valid_phone:
                                 data["phone_number"] = valid_phone
                                 logger.info(f"Extracted phone number using lenient regex: {data['phone_number']}")
-                            else:
-                                logger.warning("No valid phone number format found")
-                                data["phone_number"] = "N/A"
-                        else:
-                            logger.warning("No phone number found")
-                            data["phone_number"] = "N/A"
-
-            # Extract location
-            location_tag = soup.find("span", {"class": "postingtitletext"})
-            if location_tag:
-                location_span = location_tag.find("small")
-                if location_span:
-                    data["location"] = location_span.text.strip(" ()")
-
-            # Extract post date
-            date_tag = soup.find("time", {"class": "date timeago"})
-            if date_tag:
-                data["post_date"] = date_tag.get("datetime", "N/A")
-
-            # Description extraction removed as requested
-
-            # Extract attributes
-            attrs_group = soup.find("p", {"class": "attrgroup"})
-            if attrs_group:
-                for span in attrs_group.find_all("span"):
-                    if ":" in span.text:
-                        key, value = span.text.split(":", 1)
-                        data["attributes"][key.strip()] = value.strip()
-                    else:
-                        data["attributes"]["feature"] = span.text.strip()
 
             return data
 
@@ -181,52 +142,10 @@ class DataExtractor:
             logger.error(f"Error processing {html_file}: {e}")
             return {
                 "title": "ERROR",
-                "price": "ERROR",
-                "phone_number": "ERROR",
-                "location": "ERROR",
-                "post_date": "ERROR",
-                "attributes": {}
+                "phone_number": "N/A"
             }
 
-    def extract_all_data(self) -> List[Dict[str, Any]]:
-        """
-        Extract data from all HTML files in the input directory.
-
-        Returns:
-            List[Dict[str, Any]]: List of extracted data
-        """
-        # Load links and phone numbers
-        links_df = self.load_links()
-
-        extracted_data = []
-
-        for idx, row in enumerate(links_df.iterrows(), start=1):
-            html_file = self.input_dir / f"listing_{idx}.html"
-            row_data = row[1]  # Get the row data
-
-            if html_file.exists():
-                data = self.extract_data_from_html(html_file)
-
-                # Add link from DataFrame
-                data["link"] = row_data["link"]
-
-                # Use phone number from CSV if available (higher priority)
-                if "phone_number" in row_data and pd.notna(row_data["phone_number"]):
-                    logger.info(f"Using phone number from CSV: {row_data['phone_number']}")
-                    data["phone_number"] = row_data["phone_number"]
-
-                extracted_data.append(data)
-
-                # Show progress
-                if idx % 10 == 0 or idx == len(links_df):
-                    progress = get_progress_bar(idx, len(links_df))
-                    logger.info(f"Progress: {progress}")
-            else:
-                logger.warning(f"File not found: {html_file}")
-
-        return extracted_data
-
-    def extract_data_parallel(self, num_workers: int = 4) -> List[Dict[str, Any]]:
+    def extract_data_parallel(self, num_workers: int = 4) -> List[Dict[str, str]]:
         """
         Extract data using parallel processing for better performance.
 
@@ -234,7 +153,7 @@ class DataExtractor:
             num_workers: Number of parallel workers
 
         Returns:
-            List[Dict[str, Any]]: List of extracted data
+            List[Dict[str, str]]: List of extracted data
         """
         # Load links and phone numbers
         links_df = self.load_links()
@@ -269,14 +188,16 @@ class DataExtractor:
                     idx, link, phone_number = future_to_file[future]
                     try:
                         data = future.result()
-                        data["link"] = link
 
                         # Use phone number from CSV if available (higher priority)
                         if phone_number:
                             logger.info(f"Using phone number from CSV for listing {idx}: {phone_number}")
                             data["phone_number"] = phone_number
 
-                        extracted_data.append(data)
+                        # Only include entries with a valid phone number
+                        if data["phone_number"] != "N/A":
+                            extracted_data.append(data)
+
                         pbar.update(1)
                     except Exception as e:
                         logger.error(f"Error processing listing {idx}: {e}")
@@ -284,9 +205,9 @@ class DataExtractor:
 
         return extracted_data
 
-    def save_data_to_csv(self, data: List[Dict[str, Any]]) -> bool:
+    def save_data_to_txt(self, data: List[Dict[str, str]]) -> bool:
         """
-        Save extracted data to CSV file.
+        Save extracted data to text file.
 
         Args:
             data: List of extracted data
@@ -295,33 +216,18 @@ class DataExtractor:
             bool: True if successful, False otherwise
         """
         try:
-            # Convert to DataFrame
-            df = pd.DataFrame(data)
+            with open(self.output_file, "w", encoding="utf-8") as f:
+                for item in data:
+                    f.write(f"{item['title']}\n")
+                    f.write("\n")
+                    f.write(f"{item['phone_number']}\n")
+                    f.write("\n")
 
-            # Flatten attributes if needed
-            if "attributes" in df.columns:
-                # Extract common attributes
-                common_attrs = set()
-                for attrs in df["attributes"]:
-                    if isinstance(attrs, dict):
-                        common_attrs.update(attrs.keys())
-
-                # Add attribute columns
-                for attr in common_attrs:
-                    df[f"attr_{attr}"] = df["attributes"].apply(
-                        lambda x: x.get(attr, "N/A") if isinstance(x, dict) else "N/A"
-                    )
-
-                # Drop attributes column
-                df = df.drop(columns=["attributes"])
-
-            # Save to CSV
-            df.to_csv(self.output_file, index=False)
-            logger.info(f"Saved {len(df)} records to {self.output_file}")
+            logger.info(f"Saved {len(data)} records to {self.output_file}")
             return True
 
         except Exception as e:
-            logger.error(f"Error saving data to CSV: {e}")
+            logger.error(f"Error saving data to text file: {e}")
             return False
 
     def run(self, parallel: bool = True, num_workers: int = 4) -> bool:
@@ -335,29 +241,26 @@ class DataExtractor:
         Returns:
             bool: True if successful, False otherwise
         """
-        logger.info("Starting data extraction")
+        logger.info("Starting title and phone number extraction")
 
-        if parallel:
-            data = self.extract_data_parallel(num_workers)
-        else:
-            data = self.extract_all_data()
+        data = self.extract_data_parallel(num_workers) if parallel else []
 
         if not data:
-            logger.error("No data extracted")
+            logger.error("No data extracted or no entries with valid phone numbers")
             return False
 
-        logger.info(f"Extracted data from {len(data)} listings")
-        return self.save_data_to_csv(data)
+        logger.info(f"Extracted data from {len(data)} listings with valid phone numbers")
+        return self.save_data_to_txt(data)
 
 
 def main():
     """
-    Main function to run the data extractor from command line.
+    Main function to run the extractor from command line.
     """
     parser = argparse.ArgumentParser(description="Craigslist Data Extractor - Stage 4")
     parser.add_argument("--input", default=str(config.MAIN_DATA_DIR), help="Input directory with HTML files")
     parser.add_argument("--links", default=str(config.LINKS_CSV), help="CSV file with links")
-    parser.add_argument("--output", default=str(config.OUTPUT_CSV), help="Output CSV file for extracted data")
+    parser.add_argument("--output", default="output/output_data.txt", help="Output text file for extracted data")
     parser.add_argument("--no-parallel", action="store_true", help="Disable parallel processing")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel workers")
 
@@ -375,9 +278,9 @@ def main():
     )
 
     if success:
-        logger.info("Data extraction completed successfully")
+        logger.info("Title and phone number extraction completed successfully")
     else:
-        logger.error("Data extraction failed")
+        logger.error("Title and phone number extraction failed")
 
 
 if __name__ == "__main__":
